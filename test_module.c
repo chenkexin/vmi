@@ -13,6 +13,9 @@ MODULE_LICENSE("Dual BSD/GPL");
 5. use a user process to call "open"
 
 */
+
+#define CLEAR_CR0_WP 0x00010000
+
 struct descriptor_idt
 {
         unsigned short offset_low,seg_selector;
@@ -26,16 +29,18 @@ static void __check_register(void)
     int dr0;
     int dr6;
     int dr7;
+    int cr0;
 
     /*clobber register is no need specified here because =a =b =c has specified these three. */ 
    __asm__ volatile("movl %%dr0,%%eax \n\t"
                         "movl %%dr6, %%ebx \n\t"
                         "movl %%dr7,%%ecx \n\t"
-                        : "=a" (dr0), "=b" (dr6), "=c" (dr7)
+                        "movl %%cr0,%%edx \n\t"
+                        : "=a" (dr0), "=b" (dr6), "=c" (dr7), "=d"(cr0)
                         :
                         : 
                         );
-    printk(KERN_INFO "in checking_register: DR0-%08x, DR6-%08x, DR7-%08x\n", dr0, dr6, dr7);
+    printk(KERN_INFO "in checking_register: DR0-%08x, DR6-%08x, DR7-%08x, CR0-%08x\n", dr0, dr6, dr7,cr0);
 }
 
 static void __set_dr0(int syscall)
@@ -125,6 +130,26 @@ static void __my_do_debug(struct pt_regs *regs, unsigned long error_code)
     (*__orig_do_debug)(regs, error_code);
 }
 
+static int orig_cr0;
+static void __read_cr0(void)
+{
+    __asm__ volatile("mov %%cr0, %%eax \n\t"
+                    :"=a"(orig_cr0)
+                    :
+                    :);
+}
+
+static void __set_cr0(int set) 
+{
+    /*int cr0 = orig_cr0;
+    cr0 &= ~CLEAR_CR0_WP;*/
+    __asm__ volatile("mov %0,%%cr0  \n\t"
+                    :
+                    :"r"(set)
+                    :); 
+    __check_register();
+} 
+
 static void hook_stub(int n,void *new_stub,unsigned long *old_stub)
 {
         unsigned long new_addr=(unsigned long)new_stub;
@@ -153,40 +178,39 @@ static void hook_stub(int n,void *new_stub,unsigned long *old_stub)
 */
         //searching through the ENTRY(debug) and find the addr of do_debug
         unsigned char *p = (unsigned char *)handler;
-        printk(KERN_INFO "original p:%08x\n", (unsigned int)p);
         while(p[0] != 0xe8)
         {
             p++;
         }
-        printk(KERN_INFO "call do_debug instruction addr: %08x\n", (unsigned int)p);
-        printk(KERN_INFO "before: p[1]: %x\n",p[1]);
         buf[0] = p[1];
         buf[1] = p[2];
         buf[2] = p[3];
         buf[3] = p[4];
 
         offset = *(unsigned int*)buf;
-        printk(KERN_INFO "offset: %x\n", offset);
-        printk(KERN_INFO "ofset + (unsigned int)p:%0x\n", offset +(unsigned int)p);
         orig = offset + (unsigned int)p + 5;
 
         __orig_do_debug = (void(*)())orig;
-        //
+        printk(KERN_INFO "addr of do_debug:%08x, __orig_do_debug: %08x\n", orig, __orig_do_debug);
+  
         my_handler = (unsigned int)new_addr;
         offset = my_handler - (unsigned int)p -5;
        
-        printk(KERN_INFO "my handler: %08x\n", my_handler);
-        printk(KERN_INFO "new offset: %08x\n", offset); 
-
+        //set CR0 Write protection bit
+        __read_cr0();
+        int set = orig_cr0;
+        set &= ~CLEAR_CR0_WP;
+        printk(KERN_INFO "orig_cr0: %08x, new cr0: %08x\n", orig_cr0, set);
+        __set_cr0(set);
+            
         //37 07 09 14 -> 14 09 07 37
         p[1] = (offset &0x000000ff);
         p[2] = ((offset &0x0000ff00)>>8);
         p[3] = ((offset &0x00ff0000)>>16);
         p[4] = ((offset &0xff000000)>>24);  
-        
-        /*((unsigned int*)p[1]) = offset;*/
-        printk(KERN_INFO "p[1] = offset: p: %0x\n",p); 
-        return;
+       
+        __set_cr0(orig_cr0); 
+        printk(KERN_INFO "p[1] = offset: p: %0x\n",p[1]); 
 }
 
 static unsigned long get_addr_idt (void)
@@ -237,7 +261,6 @@ static int __set_debug_control(void)
                     :);
     __check_register();*/
 } 
-  
 static __init int hello_init(void) 
 {
 int h0x80;
