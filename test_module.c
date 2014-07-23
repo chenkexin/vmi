@@ -249,7 +249,7 @@ static int __set_debug_control(void)
     printk(KERN_INFO " after set DBG\n");
     __check_register();
     //set dr7
-   /* 
+    
     __asm__ volatile("mov %%dr7, %0  \n\t"
                     :"=a"(dr7)
                     :
@@ -259,7 +259,7 @@ static int __set_debug_control(void)
                     :
                     :"r"(dr7)
                     :);
-    __check_register();*/
+    __check_register();
 } 
 static __init int hello_init(void) 
 {
