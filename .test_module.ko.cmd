@@ -1,1 +1,0 @@
-cmd_/home/chenkx/vmi/test_module.ko := ld -r -m elf_i386 -T /usr/src/linux-source-3.2.0/scripts/module-common.lds --build-id  -o /home/chenkx/vmi/test_module.ko /home/chenkx/vmi/test_module.o /home/chenkx/vmi/test_module.mod.o

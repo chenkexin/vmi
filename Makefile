@@ -6,5 +6,5 @@ else
 all: 
 	make -C $(KDIR) M=$(PWD) modules 
 clean: 
-	rm -rf *.ko *.o *.mod.o *.mod.c *.symvers 
+	rm -rf *.ko *.o *.mod.o *.mod.c *.symvers .*.cmd *.order 
 endif 
