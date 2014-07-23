@@ -9,7 +9,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 1. get systemcall addr: __NR_open
 2. set the __NR_open addr to %%dr0
 3. set %%dr6 to single step
-4. set INT 0x01 handler to my_hook
+4. set INT 0x01 handler to __my_do_debug
 5. use a user process to call "open"
 
 */
@@ -19,7 +19,7 @@ struct descriptor_idt
         unsigned char reserved,flag;
         unsigned short offset_high;
 };
-
+void (*__orig_do_debug)(struct pt_regs* regs, unsigned long error_code);
 static void __check_register(void)
 {
     //this function will print dr0 dr6 and dr7
@@ -113,24 +113,27 @@ static unsigned long ptr_idt_table;
 
 static void* get_stub_from_idt (int n)
 {
-    printk(KERN_INFO "check idt addr:%08x\n", ptr_idt_table);    
-    printk(KERN_INFO "descriptor size: %d\n", sizeof(struct descriptor_idt));
         struct descriptor_idt *idt = &(((struct descriptor_idt *)ptr_idt_table) [n]);
-    printk(KERN_INFO " idt_entry addr: %08x\n", idt);
         unsigned long addr= (unsigned long) ((void *) ((idt->offset_high << 16 ) + idt->offset_low));
-        printk(KERN_INFO "in get_stub_from_idt, do_debug addr: %08x", addr);
+        printk(KERN_INFO "in get_stub_from_idt, ENTRY(debug) addr: %08x", addr);
         return ((void*) ((idt->offset_high<<16) + idt->offset_low));
 }
 
-static void my_hook()
+static void __my_do_debug(struct pt_regs *regs, unsigned long error_code)
 {
     printk(KERN_INFO "already in hooking!\n");
+    (*__orig_do_debug)(regs, error_code);
 }
 
 static void hook_stub(int n,void *new_stub,unsigned long *old_stub)
 {
-         unsigned long new_addr=(unsigned long)new_stub;
-         printk(KERN_INFO "1\n");
+        unsigned long new_addr=(unsigned long)new_stub;
+        unsigned int handler = 0; 
+        unsigned char buf[4] = "\x00\x00\x00\x00";
+        unsigned int offset = 0;
+        unsigned int orig = 0;
+        unsigned int my_handler=0;
+            
          struct descriptor_idt *idt=(struct descriptor_idt *)ptr_idt_table;
          //save old stub
 
@@ -138,13 +141,52 @@ static void hook_stub(int n,void *new_stub,unsigned long *old_stub)
          {
                 printk(KERN_INFO "2\n");
                 *old_stub=(unsigned long)get_stub_from_idt(1);
-                printk(KERN_INFO "in hook_stub, INT0x01 handler:%08x\n", *old_stub);
+                handler = (unsigned int)*old_stub;
+                printk(KERN_INFO "in hook_stub, INT 0x01 handler:%08x\n", handler);
          }
+        //THIS WAY WON"T WORK!
+
         //assign new stub
-         idt[n].offset_high = (unsigned short) (new_addr >> 16);
+         /*idt[n].offset_high = (unsigned short) (new_addr >> 16);
          idt[n].offset_low  = (unsigned short) (new_addr & 0x0000FFFF);
-         printk(KERN_INFO "finish hook\n");
-         return;
+         printk(KERN_INFO "finish hook, new handler address:%08x, and should be %08x\n",( (idt[n].offset_high<<16) + idt[n].offset_low), new_addr);
+*/
+        //searching through the ENTRY(debug) and find the addr of do_debug
+        unsigned char *p = (unsigned char *)handler;
+        printk(KERN_INFO "original p:%08x\n", (unsigned int)p);
+        while(p[0] != 0xe8)
+        {
+            p++;
+        }
+        printk(KERN_INFO "call do_debug instruction addr: %08x\n", (unsigned int)p);
+        printk(KERN_INFO "before: p[1]: %x\n",p[1]);
+        buf[0] = p[1];
+        buf[1] = p[2];
+        buf[2] = p[3];
+        buf[3] = p[4];
+
+        offset = *(unsigned int*)buf;
+        printk(KERN_INFO "offset: %x\n", offset);
+        printk(KERN_INFO "ofset + (unsigned int)p:%0x\n", offset +(unsigned int)p);
+        orig = offset + (unsigned int)p + 5;
+
+        __orig_do_debug = (void(*)())orig;
+        //
+        my_handler = (unsigned int)new_addr;
+        offset = my_handler - (unsigned int)p -5;
+       
+        printk(KERN_INFO "my handler: %08x\n", my_handler);
+        printk(KERN_INFO "new offset: %08x\n", offset); 
+
+        //37 07 09 14 -> 14 09 07 37
+        p[1] = (offset &0x000000ff);
+        p[2] = ((offset &0x0000ff00)>>8);
+        p[3] = ((offset &0x00ff0000)>>16);
+        p[4] = ((offset &0xff000000)>>24);  
+        
+        /*((unsigned int*)p[1]) = offset;*/
+        printk(KERN_INFO "p[1] = offset: p: %0x\n",p); 
+        return;
 }
 
 static unsigned long get_addr_idt (void)
@@ -216,7 +258,7 @@ __set_dr0(func_addr);
 
 __set_debug_control();
 
-hook_stub(1, &my_hook, &a);
+hook_stub(1, &__my_do_debug, &a);
 
 return 0; 
 }
@@ -225,6 +267,7 @@ static __exit void hello_exit(void)
 {
 int a=0;
 __set_dr0(a); 
+hook_stub(1,__orig_do_debug, &a);
 printk(KERN_ALERT"GoodBye\n"); 
 } 
 module_init(hello_init); 
