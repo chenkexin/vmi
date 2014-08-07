@@ -1,0 +1,16 @@
+t_reanme: 3449
+t_chmod: 1288
+t_remove: 1099
+t_open: 852
+t_write: 205
+t_read: 199
+t_close: 220
+t_create: 4479
+t_mkdir: 8264
+t_rmdir: 7378
+t_link: 588
+t_unlink: 663
+t_getgid: 201
+t_getuid: 210
+t_setgid: 444
+t_setuid: 6557

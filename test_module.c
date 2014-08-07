@@ -126,8 +126,22 @@ static void* get_stub_from_idt (int n)
 
 static void __my_do_debug(struct pt_regs *regs, unsigned long error_code)
 {
-    printk(KERN_INFO "already in hooking!\n");
-    (*__orig_do_debug)(regs, error_code);
+    printk(KERN_INFO "already in hooking! hooking error_code:%d\n",error_code);
+    int dr7 = 0; 
+    __asm__ volatile("mov %%dr7, %0  \n\t"
+                    :"=a"(dr7)
+                    :
+                    :);
+    dr7 &= (0);
+   // dr7 |= (1 << 16);
+   // dr7 |= (1 <<17);
+    __asm__ volatile("mov %0, %%dr7   \n\t"
+                    :
+                    :"r"(dr7)
+                    :);
+    printk(KERN_INFO "in __my_do_debug: already clear the registers\n");
+    __check_register();
+     (*__orig_do_debug)(regs, error_code);
 }
 
 static int orig_cr0;
@@ -230,7 +244,7 @@ static int __set_debug_control(void)
     //generate 0x01 exception
     
     /* 
-        dr6: BS(6th bit) = 1: single step trap
+        dr6: BS(14 th bit) = 1: single step trap
     */ 
     int bs = 0;
     int dr7= 0;
@@ -240,7 +254,8 @@ static int __set_debug_control(void)
                     :"=a"(bs)
                     :
                     :);
-    bs |= (0<<6);
+    bs &= (0<<6);
+    //bs |= (1<<14);
     bs |= (1);
     __asm__ volatile("mov %0, %%dr6   \n\t"
                     :
@@ -255,10 +270,12 @@ static int __set_debug_control(void)
                     :
                     :);
     dr7 |= (1);
+   // dr7 |= (1 << 16);
+   // dr7 |= (1 <<17);
     __asm__ volatile("mov %0, %%dr7   \n\t"
                     :
                     :"r"(dr7)
-                    :);
+                    :); 
     __check_register();
 } 
 static __init int hello_init(void) 
